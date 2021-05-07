@@ -7,19 +7,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spring.rest.app.entities.Role;
 import com.spring.rest.app.entities.User;
+import com.spring.rest.app.models.AuditDetails;
 import com.spring.rest.app.models.BimbsSecurityRule;
 import com.spring.rest.app.repositories.RoleRepository;
 import com.spring.rest.app.repositories.UserInRoleRepository;
 
 @Service
 public class RoleService {
+	
+	
 
 	@Autowired
 	private RoleRepository roleRepository;
@@ -27,7 +34,10 @@ public class RoleService {
 	@Autowired
 	private UserInRoleRepository userInRoleRepository;
 	
+	@Autowired
+	private KafkaTemplate<Integer, String> kafkaTemplate;
 	
+	private ObjectMapper mapper= new ObjectMapper();
 	private static final Logger log = LoggerFactory.getLogger(RoleService.class);
 
 
@@ -36,7 +46,19 @@ public class RoleService {
 	}
 
 	public Role createRole(Role role) {
-		return roleRepository.save(role);
+		Role roleCreated=roleRepository.save(role);
+		String createdBy=SecurityContextHolder.getContext().getAuthentication().getName();
+		String jsonString;
+		try {
+			jsonString = mapper.writeValueAsString(new AuditDetails(createdBy, role.getName()));
+			kafkaTemplate.send("devs4j-topic",jsonString);
+
+		} catch (JsonProcessingException e) {
+			log.error("Ocurrio un error al convertir el objeto", e.getMessage());
+		    throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,String.format("Ocurrio un error : %s", e.getMessage()));
+		}
+		
+		return roleCreated;
 	}
 
 	public Role updateRole(Role role, Integer roleId) {
